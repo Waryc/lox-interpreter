@@ -1,0 +1,15 @@
+# 首先忽略所有文件
+*
+
+# 然后保留特定文件和目录
+!src/
+!src/**
+!Cargo.lock
+!*.rs
+!*.toml
+!*.md
+!.gitignore
+!*.lalrpop
+
+# 忽略编译产物
+target/
