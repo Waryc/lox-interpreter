@@ -1,5 +1,5 @@
 use lalrpop_util::ParseError;
-use std::fmt;
+use std::fmt::{self, write};
 use crate::lexer;
 
 pub type PE = ParseError<(), lexer::Token, &'static str>;
@@ -29,9 +29,6 @@ pub enum ParseErrorMsg {
     IllegalSuper(), 
     IllegalThis(),
 }
-
-
-
 
 impl fmt::Display for ParseErrorMsg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -71,5 +68,32 @@ fn pe_reslover(error: &PE) -> String {
 }
 
 pub enum RuntimeError {
+    DivisionByZero,
+    UndefinedVariable(String),
+    UndefinedProperty(String), // 方法名，字段名
+    IllegalCall,
+    WrongArity(usize, usize), // 期望参数个数，实际参数个数
+    TypeMismatch,
+    StackOverflow,
+}
 
+impl fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RuntimeError::DivisionByZero =>
+                write!(f, "RuntimeError: Division by zero."),
+            RuntimeError::UndefinedVariable(name) =>
+                write!(f, "RuntimeError: Undefined variable '{}'.", name),
+            RuntimeError::UndefinedProperty(name) =>
+                write!(f, "RuntimeError: Undefined property '{}'.", name),
+            RuntimeError::IllegalCall =>
+                write!(f, "RuntimeError: Can only call functions and classes."),
+            RuntimeError::WrongArity(expected, actual) =>
+                write!(f, "RuntimeError: Expected {} arguments but got {}.", expected, actual),
+            RuntimeError::TypeMismatch =>
+                write!(f, "RuntimeError: Operands must be two numbers or two strings."),
+            RuntimeError::StackOverflow =>
+                write!(f, "RuntimeError: Stack overflow."),
+        }
+    }
 }

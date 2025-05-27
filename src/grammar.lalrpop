@@ -23,7 +23,7 @@ DeclFun: ast::Stmt = "fun" <function:Function> => ast::Stmt::Fun(<>);
 DeclVar: ast::Stmt = {
     "var" <name:identifier> <value:("=" <Expr>)?> ";" =>
     ast::Stmt::Var(ast::StmtVar {
-        var: ast::Var { name, depth: None },
+        var: ast::Var { name },
         value,
     }),
     "var" <err:!> => report_error!(ParseErrorMsg::DeclVarMissingVariableName(err.error)),
@@ -100,7 +100,7 @@ Expr = ExprAssign;
 ExprAssign = {
     <name:identifier> "=" <value:Expr> =>
         ast::Expr::Assign(Box::new(ast::ExprAssign {
-            var: ast::Var { name, depth: None },
+            var: ast::Var { name },
             value,
         })),
     <object:ExprCall> "." <name:identifier> "=" <value:Expr> =>
@@ -159,7 +159,6 @@ ExprCall: ast::Expr = {
         ast::Expr::Super(ast::ExprSuper {
             super_: ast::Var {
                 name: "super".to_string(),
-                depth: None,
             },
             name,
         }),
@@ -183,10 +182,9 @@ ExprPrimary: ast::Expr = {
 }
 
 ExprVar: ast::Expr = <name:identifier> =>
-    ast::Expr::Var(ast::ExprVar { var: ast::Var { name, depth: None } });
+    ast::Expr::Var(ast::ExprVar { var: ast::Var { name } });
 ExprThis: ast::Expr = "this" => ast::Expr::Var(ast::ExprVar { var: ast::Var {
     name: "this".to_string(),
-    depth: None,
 }});
 
 Function: ast::StmtFun = {

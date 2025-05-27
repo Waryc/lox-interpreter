@@ -2,6 +2,8 @@ use std::rc::Rc;
 use std::cell::RefCell;
 
 use crate::environment::Environment;
+use crate::{error::RuntimeError, report_error};
+use crate::value::LoxValue;
 
 pub struct Interpreter {
     pub globals: Rc<RefCell<Environment>>, // 全局环境
