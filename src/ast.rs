@@ -1,16 +1,8 @@
 use std::fmt::{self, Display, Formatter};
 
-use std::ops::Range;
-
-pub type Spanned<T> = (T, Span);
-pub type Span = Range<usize>;
-
-pub type StmtS = Spanned<Stmt>;
-pub type ExprS = Spanned<Expr>;
-
 #[derive(Debug, Default)]
 pub struct Program {
-    pub stmts: Vec<StmtS>,
+    pub stmts: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -25,33 +17,32 @@ pub enum Stmt {
     Return(StmtReturn),
     Var(StmtVar),
     While(Box<StmtWhile>),
-    Error,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtBlock {
-    pub stmts: Vec<StmtS>,
+    pub stmts: Vec<Stmt>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtClass {
     pub name: String,
-    pub super_: Option<ExprS>,
-    pub methods: Vec<Spanned<StmtFun>>,
+    pub super_: Option<Expr>,
+    pub methods: Vec<StmtFun>,
 }
 
 /// An expression statement evaluates an expression and discards the result.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtExpr {
-    pub value: ExprS,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtFor {
-    pub init: Option<StmtS>,
-    pub cond: Option<ExprS>,
-    pub incr: Option<ExprS>,
-    pub body: StmtS,
+    pub init: Option<Stmt>,
+    pub cond: Option<Expr>,
+    pub incr: Option<Expr>,
+    pub body: Stmt,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,31 +54,31 @@ pub struct StmtFun {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtIf {
-    pub cond: ExprS,
-    pub then: StmtS,
-    pub else_: Option<StmtS>,
+    pub cond: Expr,
+    pub then: Stmt,
+    pub else_: Option<Stmt>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtPrint {
-    pub value: ExprS,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtReturn {
-    pub value: Option<ExprS>,
+    pub value: Option<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtVar {
     pub var: Var,
-    pub value: Option<ExprS>,
+    pub value: Option<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct StmtWhile {
-    pub cond: ExprS,
-    pub body: StmtS,
+    pub cond: Expr,
+    pub body: Stmt,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -106,18 +97,18 @@ pub enum Expr {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprAssign {
     pub var: Var,
-    pub value: ExprS,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprCall {
-    pub callee: ExprS,
-    pub args: Vec<ExprS>,
+    pub callee: Expr,
+    pub args: Vec<Expr>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprGet {
-    pub object: ExprS,
+    pub object: Expr,
     pub name: String,
 }
 
@@ -131,9 +122,9 @@ pub enum ExprLiteral {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprInfix {
-    pub lt: ExprS,
+    pub lt: Expr,
     pub op: OpInfix,
-    pub rt: ExprS,
+    pub rt: Expr,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -175,7 +166,7 @@ impl Display for OpInfix {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprPrefix {
     pub op: OpPrefix,
-    pub rt: ExprS,
+    pub rt: Expr,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -196,9 +187,9 @@ impl Display for OpPrefix {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExprSet {
-    pub object: ExprS,
+    pub object: Expr,
     pub name: String,
-    pub value: ExprS,
+    pub value: Expr,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

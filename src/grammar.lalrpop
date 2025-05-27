@@ -1,17 +1,10 @@
-use lalrpop_util::ParseError;
-use crate::error::ErrorS;
+use crate::{ast, lexer, error::ParseErrorMsg, report_error};
 
-use crate::{ast, lexer};
+grammar;
 
-grammar<'err>(
-    errors: &'err mut Vec<ParseError<usize, lexer::Token, ErrorS>>
-);
-
-pub Program: ast::Program = <stmts:DeclS*> => ast::Program { <> };
+pub Program: ast::Program = <stmts:Decl*> => ast::Program { <> };
 
 // Declarations
-DeclS = Spanned<Decl>;
-
 Decl = {
     DeclClass,
     DeclFun,
@@ -19,57 +12,58 @@ Decl = {
     Stmt,
 }
 
-DeclClass: ast::Stmt =
-    "class" <name:identifier> <super_:("<" <Spanned<ExprVar>>)?> "{" <methods:Spanned<Function>*> "}" =>
-        ast::Stmt::Class(ast::StmtClass { <> });
+DeclClass: ast::Stmt = {
+    "class" <name:identifier> <super_:("<" <ExprVar>)?> "{" <methods:Function*> "}" =>
+        ast::Stmt::Class(ast::StmtClass { <> }),
+    "class" <identifier> <!> => report_error!(ParseErrorMsg::SuperclassNotFound()),
+}
 
 DeclFun: ast::Stmt = "fun" <function:Function> => ast::Stmt::Fun(<>);
 
-DeclVar: ast::Stmt = "var" <name:identifier> <value:("=" <ExprS>)?> ";" =>
+DeclVar: ast::Stmt = {
+    "var" <name:identifier> <value:("=" <Expr>)?> ";" =>
     ast::Stmt::Var(ast::StmtVar {
         var: ast::Var { name, depth: None },
         value,
-    });
+    }),
+    "var" <err:!> => report_error!(ParseErrorMsg::DeclVarMissingVariableName(err.error)),
+}
 
 Stmt: ast::Stmt = {
     StmtOpen,
     StmtClosed,
-    <e:!> => {
-        errors.push(e.error);
-        ast::Stmt::Error
-    },
 }
 
 StmtOpen: ast::Stmt = {
-    "if" "(" <cond:ExprS> ")" <then:Spanned<Stmt>> =>
+    "if" "(" <cond:Expr> ")" <then:Stmt> =>
         ast::Stmt::If(Box::new(ast::StmtIf { <>, else_: None })),
-    "if" "(" <cond:ExprS> ")" <then:Spanned<StmtClosed>> "else" <else_:Spanned<StmtOpen>> =>
+    "if" "(" <cond:Expr> ")" <then:StmtClosed> "else" <else_:StmtOpen> =>
         ast::Stmt::If(Box::new(ast::StmtIf { cond, then, else_: Some(else_) })),
-    "while" "(" <cond:ExprS> ")" <body:Spanned<StmtOpen>> =>
+    "while" "(" <cond:Expr> ")" <body:StmtOpen> =>
         ast::Stmt::While(Box::new(ast::StmtWhile { <> })),
-    "for" "(" <init:ForInit> <cond:ForCond> <incr:ForIncr> ")" <body:Spanned<StmtOpen>> =>
+    "for" "(" <init:ForInit> <cond:ForCond> <incr:ForIncr> ")" <body:StmtOpen> =>
         ast::Stmt::For(Box::new(ast::StmtFor { <> })),
 }
 
 StmtClosed: ast::Stmt = {
-    "if" "(" <cond:ExprS> ")" <then:Spanned<StmtClosed>> "else" <else_:Spanned<StmtClosed>> =>
+    "if" "(" <cond:Expr> ")" <then:StmtClosed> "else" <else_:StmtClosed> =>
         ast::Stmt::If(Box::new(ast::StmtIf { cond, then, else_: Some(else_) })),
-    "while" "(" <cond:ExprS> ")" <body:Spanned<StmtClosed>> =>
+    "while" "(" <cond:Expr> ")" <body:StmtClosed> =>
         ast::Stmt::While(Box::new(ast::StmtWhile { <> })),
-    "for" "(" <init:ForInit> <cond:ForCond> <incr:ForIncr> ")" <body:Spanned<StmtClosed>> =>
+    "for" "(" <init:ForInit> <cond:ForCond> <incr:ForIncr> ")" <body:StmtClosed> =>
         ast::Stmt::For(Box::new(ast::StmtFor { <> })),
     StmtSimple,
 }
 
-ForInit: Option<ast::StmtS> = {
-    <Spanned<DeclVar>> => Some(<>),
-    <Spanned<StmtExpr>> => Some(<>),
+ForInit: Option<ast::Stmt> = {
+    DeclVar => Some(<>),
+    StmtExpr => Some(<>),
     ";" => None,
 }
 
-ForCond = <ExprS?> ";";
+ForCond = <Expr?> ";";
 
-ForIncr = <ExprS?>;
+ForIncr = <Expr?>;
 
 StmtSimple = {
     StmtBlock,
@@ -80,30 +74,36 @@ StmtSimple = {
 
 StmtBlock: ast::Stmt = StmtBlockInternal => ast::Stmt::Block(<>);
 
-StmtBlockInternal: ast::StmtBlock = "{" <stmts:DeclS*> "}" =>
-    ast::StmtBlock { <> };
+StmtBlockInternal: ast::StmtBlock = {
+    "{" <stmts:Decl*> "}" => ast::StmtBlock { <> },
+    "{" <err:!> => report_error!(ParseErrorMsg::BlockMissingRightBrace(err.error)),
+}
 
-StmtExpr: ast::Stmt = <value:ExprS> ";" =>
-    ast::Stmt::Expr(ast::StmtExpr { <> });
+StmtExpr: ast::Stmt = {
+    <value:Expr> ";" => ast::Stmt::Expr(ast::StmtExpr { <> }),
+    <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+}
 
-StmtPrint: ast::Stmt = "print" <value:ExprS> ";" =>
-    ast::Stmt::Print(ast::StmtPrint { <> });
+StmtPrint: ast::Stmt = {
+    "print" <value:Expr> ";" => ast::Stmt::Print(ast::StmtPrint { <> }),
+    "print" <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+}
 
-StmtReturn: ast::Stmt = "return" <value:ExprS?> ";" =>
-    ast::Stmt::Return(ast::StmtReturn { <> });
+StmtReturn: ast::Stmt = {
+    "return" <value:Expr?> ";" => ast::Stmt::Return(ast::StmtReturn { <> }),
+    "return" <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+}
 
 // Expressions
-ExprS = Spanned<Expr>;
-
 Expr = ExprAssign;
 
 ExprAssign = {
-    <name:identifier> "=" <value:ExprS> =>
+    <name:identifier> "=" <value:Expr> =>
         ast::Expr::Assign(Box::new(ast::ExprAssign {
             var: ast::Var { name, depth: None },
             value,
         })),
-    <object:Spanned<ExprCall>> "." <name:identifier> "=" <value:ExprS> =>
+    <object:ExprCall> "." <name:identifier> "=" <value:Expr> =>
         ast::Expr::Set(Box::new(ast::ExprSet { <> })),
     ExprLogicOr,
 }
@@ -141,7 +141,7 @@ OpFactor: ast::OpInfix = {
 }
 
 ExprPrefix: ast::Expr = {
-    <op:OpPrefix> <rt:Spanned<ExprPrefix>> =>
+    <op:OpPrefix> <rt:ExprPrefix> =>
         ast::Expr::Prefix(Box::new(ast::ExprPrefix { <> })),
     ExprCall,
 }
@@ -151,9 +151,9 @@ OpPrefix: ast::OpPrefix = {
 }
 
 ExprCall: ast::Expr = {
-    <callee:Spanned<ExprCall>> "(" <args:Args> ")" =>
+    <callee:ExprCall> "(" <args:Args> ")" =>
         ast::Expr::Call(Box::new(ast::ExprCall { callee, args })),
-    <object:Spanned<ExprCall>> "." <name:identifier> =>
+    <object:ExprCall> "." <name:identifier> =>
         ast::Expr::Get(Box::new(ast::ExprGet { <> })),
     "super" "." <name:identifier> =>
         ast::Expr::Super(ast::ExprSuper {
@@ -189,12 +189,10 @@ ExprThis: ast::Expr = "this" => ast::Expr::Var(ast::ExprVar { var: ast::Var {
     depth: None,
 }});
 
-// Utilities
-Spanned<T>: ast::Spanned<T> = <l:@L> <t:T> <r:@R> => (t, l..r);
-
-Function: ast::StmtFun =
-    <name:identifier> "(" <params:Params> ")" <body:StmtBlockInternal> =>
-        ast::StmtFun { <> };
+Function: ast::StmtFun = {
+    <name:identifier> "(" <params:Params> ")" <body:StmtBlockInternal> => ast::StmtFun { <> },
+    <_a:identifier> "(" <_b:Params> <err:!> => panic!("{}", ParseErrorMsg::FunctionMissingRightParen(err.error)),
+};
 
 Params: Vec<String> = {
     <first:identifier> <mut params:("," <identifier>)*> => {
@@ -204,8 +202,8 @@ Params: Vec<String> = {
     () => Vec::new(),
 };
 
-Args: Vec<ast::ExprS> = {
-    <first:ExprS> <mut args:("," <ExprS>)*> => {
+Args: Vec<ast::Expr> = {
+    <first:Expr> <mut args:("," <Expr>)*> => {
         args.insert(0, first);
         args
     },
@@ -213,15 +211,12 @@ Args: Vec<ast::ExprS> = {
 }
 
 ExprInfix<Lt, Op, Rt>: ast::Expr = {
-    <lt:Spanned<Lt>> <op:Op> <rt:Spanned<Rt>> =>
+    <lt:Lt> <op:Op> <rt:Rt> =>
         ast::Expr::Infix(Box::new(ast::ExprInfix { <> })),
     Rt,
 }
 
 extern {
-    type Location = usize;
-    type Error = ErrorS;
-
     enum lexer::Token {
         // Single-character tokens.
         "(" => lexer::Token::LtParen,

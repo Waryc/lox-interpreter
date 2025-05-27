@@ -1,15 +1,21 @@
 use std::env;
 use std::fs;
 use std::process;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use lalrpop_util::lalrpop_mod;
-use lexer::Token;
 use logos::Logos;
 
 mod ast;
+mod environment;
 mod error;
 mod lexer;
 mod interpreter;
+mod semantic;
+mod value;
+
+use crate::environment::Environment;
 
 lalrpop_mod!(grammar);
 
@@ -30,40 +36,29 @@ fn main() {
         }
     };
 
-    // 词法分析 - 直接使用 logos
+    // 词法分析
     let lexer = lexer::Token::lexer(&source)
-        .spanned()
-        .map(|(token_result, span)| {
-            match token_result {
-                Ok(token) => Ok((span.start, token, span.end)),
-                Err(()) => Ok((span.start, Token::Error, span.end))
-            }
+        .map(|result| match result {
+            Ok(token) => Ok(token),
+            Err(()) => Err("lexical error")  // 将 () 转换为 &str
         });
     
-    // 语法分析生成 AST
-    let mut errors = Vec::new();
+    // 语法分析 
     let parser = grammar::ProgramParser::new();
-    let ast = match parser.parse(&mut errors, lexer) {
-        Ok(ast) => ast,
-        Err(err) => {
-            // Extract the inner tuple from the ParseError
-            let (custom_err, span) = match err {
-                lalrpop_util::ParseError::User { error } => error,
-                _ => {
-                    eprintln!("Unexpected parse error: {:?}", err);
-                    process::exit(1);
-                }
-            };
-            error::report_errors(&mut std::io::stderr(), &source, &[(custom_err, span)]);
-            process::exit(1);
-        }
-    };
+    let ast = parser.parse(lexer).unwrap();
 
     // 打印 AST（使用 Debug 格式化）
     println!("AST:\n{:#?}", ast);
 
-    // let mut interpreter = interpreter::Interpreter::new();
-    // match interpreter.interpret(ast.stmts) {
+    let globals = Rc::new(RefCell::new(Environment::new(None)));
+
+    // 语义分析
+    let mut analyzer = semantic::SemanticAnalyzer::new(Rc::clone(&globals));
+    analyzer.resolve(&ast);
+
+
+    // // 解释执行
+    // match interpreter.interpret(ast) {
     //     Ok(_) => (),
     //     Err(e) => {
     //         eprintln!("Runtime error: {:?}", e);
