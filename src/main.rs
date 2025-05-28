@@ -1,8 +1,6 @@
 use std::env;
 use std::fs;
 use std::process;
-use std::rc::Rc;
-use std::cell::RefCell;
 
 use lalrpop_util::lalrpop_mod;
 use logos::Logos;
@@ -12,10 +10,7 @@ mod environment;
 mod error;
 mod lexer;
 mod interpreter;
-mod semantic;
 mod value;
-
-use crate::environment::Environment;
 
 lalrpop_mod!(grammar);
 
@@ -48,21 +43,9 @@ fn main() {
     let ast = parser.parse(lexer).unwrap();
 
     // 打印 AST（使用 Debug 格式化）
-    println!("AST:\n{:#?}", ast);
+    // println!("AST:\n{:#?}", ast);
 
-    let globals = Rc::new(RefCell::new(Environment::new(None)));
-
-    // 语义分析
-    let mut analyzer = semantic::SemanticAnalyzer::new(Rc::clone(&globals));
-    analyzer.resolve(&ast);
-
-
-    // // 解释执行
-    // match interpreter.interpret(ast) {
-    //     Ok(_) => (),
-    //     Err(e) => {
-    //         eprintln!("Runtime error: {:?}", e);
-    //         process::exit(70);
-    //     }
-    // }
+    // 解释执行
+    let mut interpreter = interpreter::Interpreter::new();
+    interpreter.resolve(&ast);
 }

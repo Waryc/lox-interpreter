@@ -170,7 +170,7 @@ ExprPrimary: ast::Expr = {
     "nil" => ast::Expr::Literal(ast::ExprLiteral::Nil),
     "false" => ast::Expr::Literal(ast::ExprLiteral::Bool(false)),
     "true" => ast::Expr::Literal(ast::ExprLiteral::Bool(true)),
-    string => ast::Expr::Literal(ast::ExprLiteral::String(<>)),
+    string => ast::Expr::Literal(ast::ExprLiteral::String(<>[1..(<>.len()-1)].to_string())),
     number => ast::Expr::Literal(ast::ExprLiteral::Number(<>)),
 
     // Variables

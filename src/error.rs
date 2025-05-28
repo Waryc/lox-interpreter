@@ -1,5 +1,5 @@
 use lalrpop_util::ParseError;
-use std::fmt::{self, write};
+use std::fmt::{self};
 use crate::lexer;
 
 pub type PE = ParseError<(), lexer::Token, &'static str>;
@@ -8,7 +8,7 @@ pub type PE = ParseError<(), lexer::Token, &'static str>;
 macro_rules! report_error {
     ($msg:expr) => {{
         println!("{}", $msg); // 先输出到 stdout
-        std::process::exit(1); // 退出代码 1
+        std::process::exit(0); // 退出代码 0
     }};
 }
 
@@ -18,6 +18,7 @@ pub enum ParseErrorMsg {
     StmtMissingSemicolon(PE),
     FunctionMissingRightParen(PE),
     DeclVarMissingVariableName(PE),
+    #[allow(dead_code)]
     UnexpectedCharacter(PE),  // 未正确实现
     BlockMissingRightBrace(PE),
     // 语义分析
@@ -71,10 +72,13 @@ pub enum RuntimeError {
     DivisionByZero,
     UndefinedVariable(String),
     UndefinedProperty(String), // 方法名，字段名
+    #[allow(dead_code)]
     IllegalCall,
-    WrongArity(usize, usize), // 期望参数个数，实际参数个数
+    ArityMismatch(usize, usize), // 期望参数个数，实际参数个数
     TypeMismatch,
+    #[allow(dead_code)]
     StackOverflow,
+    UnexpectedError, // 其他错误
 }
 
 impl fmt::Display for RuntimeError {
@@ -88,12 +92,14 @@ impl fmt::Display for RuntimeError {
                 write!(f, "RuntimeError: Undefined property '{}'.", name),
             RuntimeError::IllegalCall =>
                 write!(f, "RuntimeError: Can only call functions and classes."),
-            RuntimeError::WrongArity(expected, actual) =>
+            RuntimeError::ArityMismatch(expected, actual) =>
                 write!(f, "RuntimeError: Expected {} arguments but got {}.", expected, actual),
             RuntimeError::TypeMismatch =>
                 write!(f, "RuntimeError: Operands must be two numbers or two strings."),
             RuntimeError::StackOverflow =>
                 write!(f, "RuntimeError: Stack overflow."),
+            RuntimeError::UnexpectedError =>
+                write!(f, "RuntimeError: An unexpected error occurred."),
         }
     }
 }
