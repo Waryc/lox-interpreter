@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use crate::value::{LoxValue};
 
-#[derive(Debug, PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct Environment {
     values: HashMap<String, LoxValue>,
     enclosing: Option<Rc<RefCell<Environment>>>, // 外部作用域

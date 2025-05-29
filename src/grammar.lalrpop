@@ -1,4 +1,4 @@
-use crate::{ast, lexer, error::ParseErrorMsg, report_error};
+use crate::{ast, lexer, error::LoxError::*, report_error};
 
 grammar;
 
@@ -15,7 +15,7 @@ Decl = {
 DeclClass: ast::Stmt = {
     "class" <name:identifier> <super_:("<" <ExprVar>)?> "{" <methods:Function*> "}" =>
         ast::Stmt::Class(ast::StmtClass { <> }),
-    "class" <identifier> <!> => report_error!(ParseErrorMsg::SuperclassNotFound()),
+    "class" <identifier> <!> => report_error!(SuperclassNotFound),
 }
 
 DeclFun: ast::Stmt = "fun" <function:Function> => ast::Stmt::Fun(<>);
@@ -26,7 +26,7 @@ DeclVar: ast::Stmt = {
         var: ast::Var { name },
         value,
     }),
-    "var" <err:!> => report_error!(ParseErrorMsg::DeclVarMissingVariableName(err.error)),
+    "var" <err:!> => report_error!(DeclVarMissingVariableName(err.error)),
 }
 
 Stmt: ast::Stmt = {
@@ -76,22 +76,22 @@ StmtBlock: ast::Stmt = StmtBlockInternal => ast::Stmt::Block(<>);
 
 StmtBlockInternal: ast::StmtBlock = {
     "{" <stmts:Decl*> "}" => ast::StmtBlock { <> },
-    "{" <err:!> => report_error!(ParseErrorMsg::BlockMissingRightBrace(err.error)),
+    "{" <err:!> => report_error!(BlockMissingRightBrace(err.error)),
 }
 
 StmtExpr: ast::Stmt = {
     <value:Expr> ";" => ast::Stmt::Expr(ast::StmtExpr { <> }),
-    <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+    <_a:Expr> <err:!> => report_error!(StmtMissingSemicolon(err.error)),
 }
 
 StmtPrint: ast::Stmt = {
     "print" <value:Expr> ";" => ast::Stmt::Print(ast::StmtPrint { <> }),
-    "print" <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+    "print" <_a:Expr> <err:!> => report_error!(StmtMissingSemicolon(err.error)),
 }
 
 StmtReturn: ast::Stmt = {
     "return" <value:Expr?> ";" => ast::Stmt::Return(ast::StmtReturn { <> }),
-    "return" <_a:Expr> <err:!> => report_error!(ParseErrorMsg::StmtMissingSemicolon(err.error)),
+    "return" <_a:Expr> <err:!> => report_error!(StmtMissingSemicolon(err.error)),
 }
 
 // Expressions
@@ -189,7 +189,7 @@ ExprThis: ast::Expr = "this" => ast::Expr::Var(ast::ExprVar { var: ast::Var {
 
 Function: ast::StmtFun = {
     <name:identifier> "(" <params:Params> ")" <body:StmtBlockInternal> => ast::StmtFun { <> },
-    <_a:identifier> "(" <_b:Params> <err:!> => panic!("{}", ParseErrorMsg::FunctionMissingRightParen(err.error)),
+    <_a:identifier> "(" <_b:Params> <err:!> => panic!("{}", FunctionMissingRightParen(err.error)),
 };
 
 Params: Vec<String> = {

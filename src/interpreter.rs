@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::ast::*;
 use crate::environment::Environment;
 use crate::value::*;
-use crate::{error::ParseErrorMsg, error::RuntimeError, report_error};
+use crate::{error::LoxError::*, report_error};
 
 /// 解析器，构建符号表与作用域链
 pub struct Interpreter {
@@ -20,7 +20,7 @@ macro_rules! increase_call_depth {
     ($self:expr) => {{
         $self.call_depth += 1;
         if $self.call_depth > MAX_CALL_DEPTH {
-            report_error!(RuntimeError::StackOverflow);
+            report_error!(StackOverflow);
         }
     }};
 }
@@ -86,7 +86,7 @@ impl Interpreter {
                     Ok(LoxValue::Class(super_class_value)) => {
                         lox_class.superclass = Some(super_class_value.clone());
                     },
-                    _ => report_error!(RuntimeError::UndefinedVariable(var.var.name.clone())),
+                    _ => report_error!(UndefinedVariable(var.var.name.clone())),
                 };
             }
         }
@@ -115,7 +115,7 @@ impl Interpreter {
                 let value = self.visit_expr(&assign.value);
                 self.environment.borrow_mut().assign(&assign.var.name, value.clone())
                     .unwrap_or_else(|_| {
-                        report_error!(RuntimeError::UndefinedVariable(assign.var.name.clone()));
+                        report_error!(UndefinedVariable(assign.var.name.clone()));
                     });
                 value
             },
@@ -129,7 +129,7 @@ impl Interpreter {
                         match lox_callable {
                             LoxCallable::Native { arity, name:_, function } => {
                                 if args.len() != arity {
-                                    report_error!(RuntimeError::ArityMismatch(arity, args.len()));
+                                    report_error!(ArityMismatch(arity, args.len()));
                                 }
                                 return function(args);
                             },
@@ -149,7 +149,7 @@ impl Interpreter {
                                 };
 
                                 if args.len() != arity {
-                                    report_error!(RuntimeError::ArityMismatch(arity, args.len()));
+                                    report_error!(ArityMismatch(arity, args.len()));
                                 }
 
                                 increase_call_depth!(self);
@@ -184,7 +184,7 @@ impl Interpreter {
                         if let Some(init_method) = class.resolve_method("init") {
                             if let LoxCallable::User { arity, closure, declaration, .. } = init_method {
                                 if args.len() != *arity {
-                                    report_error!(RuntimeError::ArityMismatch(*arity, args.len()));
+                                    report_error!(ArityMismatch(*arity, args.len()));
                                 }
 
                                 increase_call_depth!(self);
@@ -204,13 +204,13 @@ impl Interpreter {
                             }
                         } else {
                             if args.len() > 0 {
-                                report_error!(RuntimeError::ArityMismatch(0, args.len()));
+                                report_error!(ArityMismatch(0, args.len()));
                             }
                         }
 
                         LoxValue::Instance(instance)
                     },
-                    _ => report_error!(RuntimeError::IllegalCall),
+                    _ => report_error!(IllegalCall),
                 }
             },
             Expr::Get(get) => {
@@ -221,7 +221,7 @@ impl Interpreter {
                         .unwrap_or_else(|| {
                             let method = instance.borrow().class.resolve_method(&get.name)
                                 .unwrap_or_else(|| {
-                                    report_error!(RuntimeError::UndefinedProperty(get.name.clone()));
+                                    report_error!(UndefinedProperty(get.name.clone()));
                                 })
                                 .clone();
                             LoxValue::Callable(LoxCallable::Method {
@@ -248,7 +248,7 @@ impl Interpreter {
                         OpInfix::Subtract => LoxValue::Number(l - r),
                         OpInfix::Multiply => LoxValue::Number(l * r),
                         OpInfix::Divide => {
-                            if r == 0.0 { report_error!(RuntimeError::DivisionByZero) }
+                            if r == 0.0 { report_error!(DivisionByZero) }
                             LoxValue::Number(l / r)
                         },
                         OpInfix::Equal => LoxValue::Bool(l == r),
@@ -257,32 +257,32 @@ impl Interpreter {
                         OpInfix::Greater => LoxValue::Bool(l > r),
                         OpInfix::LessEqual => LoxValue::Bool(l <= r),
                         OpInfix::GreaterEqual => LoxValue::Bool(l >= r),
-                        _ => report_error!(RuntimeError::TypeMismatch),
+                        _ => report_error!(TypeMismatch),
                     },
                     // 字符串操作
                     (LoxValue::String(l), LoxValue::String(r)) => match infix.op {
                         OpInfix::Add => LoxValue::String(format!("{}{}", l, r).into()),
                         OpInfix::Equal => LoxValue::Bool(*l == *r),
                         OpInfix::NotEqual => LoxValue::Bool(*l != *r),
-                        _ => report_error!(RuntimeError::TypeMismatch),
+                        _ => report_error!(TypeMismatch),
                     },
                     // 布尔运算
                     (LoxValue::Bool(l), LoxValue::Bool(r)) => match infix.op {
                         OpInfix::Equal => LoxValue::Bool(l == r),
                         OpInfix::NotEqual => LoxValue::Bool(l != r),
-                        _ => report_error!(RuntimeError::TypeMismatch),
+                        _ => report_error!(TypeMismatch),
                     },
                     // Nil 比较
                     (LoxValue::Nil, LoxValue::Nil) => match infix.op {
                         OpInfix::Equal => LoxValue::Bool(true),
                         OpInfix::NotEqual => LoxValue::Bool(false),
-                        _ => report_error!(RuntimeError::TypeMismatch),
+                        _ => report_error!(TypeMismatch),
                     },
                     // 默认情况（类型不匹配）
                     _ => match infix.op {
                         OpInfix::Equal => LoxValue::Bool(false),
                         OpInfix::NotEqual => LoxValue::Bool(true),
-                        _ => report_error!(RuntimeError::TypeMismatch),
+                        _ => report_error!(TypeMismatch),
                     }
                 }
             },
@@ -301,7 +301,7 @@ impl Interpreter {
                         if let LoxValue::Number(n) = right {
                             LoxValue::Number(-n)
                         } else {
-                            report_error!(RuntimeError::TypeMismatch);
+                            report_error!(TypeMismatch);
                         }
                     },
                     OpPrefix::Not => LoxValue::Bool(!right.is_truthy())
@@ -320,7 +320,7 @@ impl Interpreter {
             Expr::Super(super_) => {
                 let receiver = self.environment.borrow().get("this")
                     .unwrap_or_else(|_| {
-                        report_error!(ParseErrorMsg::IllegalSuper());
+                        report_error!(IllegalSuper);
                     });
                 if let LoxValue::Instance(instance) = receiver {
                     if let Some(super_class) = instance.borrow().class.superclass.clone() {
@@ -330,10 +330,10 @@ impl Interpreter {
                                 method: Rc::new(method.clone()),
                             });
                         } else {
-                            report_error!(RuntimeError::UndefinedProperty(super_.name.clone()));
+                            report_error!(UndefinedProperty(super_.name.clone()));
                         }
                     } else {
-                        report_error!(ParseErrorMsg::IllegalSuper());
+                        report_error!(IllegalSuper);
                     }
                 } else {
                     unreachable!();
@@ -342,12 +342,12 @@ impl Interpreter {
             Expr::Var(var) => {
                 if var.var.name == "this" {
                     if self.environment.borrow().get("this").is_err() {
-                        report_error!(ParseErrorMsg::IllegalThis());
+                        report_error!(IllegalThis);
                     }
                 }
                 self.environment.borrow().get(&var.var.name)
                     .unwrap_or_else(|_| {
-                        report_error!(RuntimeError::UndefinedVariable(var.var.name.clone()));
+                        report_error!(UndefinedVariable(var.var.name.clone()));
                     })
             }
         }
@@ -400,7 +400,7 @@ impl Interpreter {
 
     fn visit_return(&mut self, return_stmt: &StmtReturn) -> Option<LoxValue> {
         if Rc::ptr_eq(&self.environment, &self.globals) {
-            report_error!(ParseErrorMsg::ReturnFromTopLevelCode());
+            report_error!(ReturnFromTopLevelCode);
         }
 
         if let Some(value) = &return_stmt.value {
@@ -412,7 +412,7 @@ impl Interpreter {
 
     fn visit_var(&mut self, var_stmt: &StmtVar) {
         if self.environment.borrow().check(&var_stmt.var.name) {
-            report_error!(ParseErrorMsg::AlreadyDefinedVariable());
+            report_error!(AlreadyDefinedVariable);
         }
 
         let value = if let Some(expr) = &var_stmt.value {

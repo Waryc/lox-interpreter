@@ -50,15 +50,22 @@ fn main() {
     };
 
     // 词法分析
-    let lexer = lexer::Token::lexer(&source)
-        .map(|result| match result {
-            Ok(token) => Ok(token),
-            Err(()) => Err("lexical error")  // 将 () 转换为 &str
-        });
-    
-    // 语法分析 
+    let mut lex = lexer::Token::lexer(&source);
+    let tokens: Vec<_> = std::iter::from_fn(|| {
+        match lex.next() {
+            Some(Ok(token)) => Some(token),
+            Some(Err(())) => {
+                let span = lex.span();
+                let ch = source.chars().nth(span.start).unwrap_or('?');
+                report_error!(error::LoxError::UnexpectedCharacter(ch));
+            },
+            None => None,
+        }
+    }).collect();
+
+    // 语法分析
     let parser = grammar::ProgramParser::new();
-    let ast = parser.parse(lexer).unwrap();
+    let ast = parser.parse(tokens).unwrap();
 
     // 打印 AST
     // println!("AST:\n{:#?}", ast);
