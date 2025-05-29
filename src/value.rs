@@ -33,7 +33,7 @@ impl fmt::Display for LoxValue {
 }
 
 /// 可调用对象（函数/方法）
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]  
 pub enum LoxCallable {
     /// 原生函数（如 clock()）
     #[allow(dead_code)]    
@@ -52,7 +52,6 @@ pub enum LoxCallable {
     },
 
     /// 方法绑定
-    #[allow(dead_code)]   
     Method {
         receiver: Rc<RefCell<LoxInstance>>,
         method: Rc<LoxCallable>,
@@ -65,6 +64,14 @@ pub struct LoxClass {
     pub name: String,
     pub methods: HashMap<String, LoxCallable>,
     pub superclass: Option<Rc<LoxClass>>, // 单继承
+}
+
+impl LoxClass {
+    pub fn resolve_method(&self, name: &str) -> Option<&LoxCallable> {
+        self.methods.get(name).or_else(|| {
+            self.superclass.as_ref().and_then(|superclass| superclass.resolve_method(name))
+        })
+    }
 }
 
 /// 类实例

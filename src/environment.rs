@@ -3,7 +3,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use crate::value::{LoxValue};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Environment {
     values: HashMap<String, LoxValue>,
     enclosing: Option<Rc<RefCell<Environment>>>, // 外部作用域
@@ -22,10 +22,13 @@ impl Environment {
     }
 
     pub fn get(&self, name: &str) -> Result<LoxValue, ()> {
-        self.values.get(name)
-            .map(|v| v.clone())
-            .or_else(|| self.enclosing.as_ref().and_then(|e| e.borrow().get(name).ok()))
-            .ok_or(())
+        if let Some(value) = self.values.get(name) {
+            Ok(value.clone())
+        } else if let Some(enclosing) = &self.enclosing {
+            enclosing.borrow().get(name)
+        } else {
+            Err(())
+        }
     }
 
     pub fn assign(&mut self, name: &str, value: LoxValue) -> Result<(), ()> {

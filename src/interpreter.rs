@@ -11,6 +11,18 @@ use crate::{error::ParseErrorMsg, error::RuntimeError, report_error};
 pub struct Interpreter {
     globals: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>, // 当前作用域
+    call_depth: usize, // 调用深度
+}
+
+const MAX_CALL_DEPTH: usize = 1024;
+
+macro_rules! increase_call_depth {
+    ($self:expr) => {{
+        $self.call_depth += 1;
+        if $self.call_depth > MAX_CALL_DEPTH {
+            report_error!(RuntimeError::StackOverflow);
+        }
+    }};
 }
 
 impl Interpreter {
@@ -18,7 +30,8 @@ impl Interpreter {
         let globals = Rc::new(RefCell::new(Environment::new(None)));
         Interpreter {
             globals: globals.clone(),
-            environment: globals.clone()
+            environment: globals.clone(),
+            call_depth: 0,
         }
     }
 
@@ -49,12 +62,14 @@ impl Interpreter {
     }
 
     fn visit_block(&mut self, block: &StmtBlock) -> Option<LoxValue> {
+        increase_call_depth!(self);
         let new_env = Environment::new(Some(self.environment.clone()));
         let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
 
         let ret = block.stmts.iter().find_map(|stmt| self.visit_stmt(stmt));
 
         self.environment = old_env;
+        self.call_depth -= 1;
         ret
     }
 
@@ -65,32 +80,14 @@ impl Interpreter {
             superclass: None,
         };
 
-        self.environment.borrow_mut().define(
-            class.name.clone(),
-            LoxValue::Class(Rc::new(lox_class.clone()))
-        );
-
-        // 为方便处理，创建一个新的环境用于类内部作用域，同时增加 super 符号
-        let new_env = Environment::new(Some(self.environment.clone()));
-        let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
-
-        self.environment.borrow_mut().define(
-            "this".to_string(),
-            LoxValue::Class(Rc::new(lox_class.clone()))
-        );
-
         if let Some(super_class) = &class.super_ {
             if let Expr::Var(var) = super_class {
-                match self.environment.borrow().get(&var.var.name) {
+                let _ = match self.environment.borrow().get(&var.var.name) {
                     Ok(LoxValue::Class(super_class_value)) => {
                         lox_class.superclass = Some(super_class_value.clone());
-                        self.environment.borrow_mut().define(
-                            "super".to_string(),
-                            LoxValue::Class(super_class_value.clone())
-                        );
                     },
-                    _ => report_error!(ParseErrorMsg::SuperclassNotFound()),
-                }
+                    _ => report_error!(RuntimeError::UndefinedVariable(var.var.name.clone())),
+                };
             }
         }
 
@@ -106,7 +103,10 @@ impl Interpreter {
             );
         }
 
-        self.environment = old_env;
+        self.environment.borrow_mut().define(
+            class.name.clone(),
+            LoxValue::Class(Rc::new(lox_class))
+        );
     }
 
     fn visit_expr(&mut self, expr: &Expr) -> LoxValue {
@@ -133,14 +133,32 @@ impl Interpreter {
                                 }
                                 return function(args);
                             },
-                            LoxCallable::User { arity, name:_, declaration, closure } => {
+                            _ => {
+                                let (arity, closure, declaration, receiver) = match lox_callable {
+                                    LoxCallable::User { arity, closure, declaration, .. } => (arity, closure.clone(), declaration.clone(), None),
+                                    LoxCallable::Method { receiver, method } => {
+                                        if let LoxCallable::User { arity, declaration, closure, .. } = method.as_ref() {
+                                            (*arity, closure.clone(), declaration.clone(), Some(receiver.clone()))
+                                        } else {
+                                            unreachable!()
+                                        }
+                                    }
+                                    LoxCallable::Native { .. } => {
+                                        unreachable!("Native functions should be handled in previous match arm")
+                                    }
+                                };
+
                                 if args.len() != arity {
                                     report_error!(RuntimeError::ArityMismatch(arity, args.len()));
                                 }
 
-                                // 创建一个新的环境用于函数调用
+                                increase_call_depth!(self);
                                 let new_env = Environment::new(Some(closure));
                                 let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
+
+                                if let Some(receiver_ref) = receiver {
+                                    self.environment.borrow_mut().define("this".to_string(), LoxValue::Instance(receiver_ref));
+                                }
 
                                 for (i, param) in declaration.params.iter().enumerate() {
                                     self.environment.borrow_mut().define(param.clone(), args[i].clone());
@@ -152,29 +170,47 @@ impl Interpreter {
                                 };
 
                                 self.environment = old_env;
+                                self.call_depth -= 1;
                                 ret
-                            },
-                            LoxCallable::Method { receiver:_, method:_ } => {
-                                todo!("Method calls not implemented yet");
-                                // LoxValue::Callable(*method.clone())
                             },
                         }
                     },
                     LoxValue::Class(class) => {
-                        if args.len() != 0 {
-                            report_error!(RuntimeError::ArityMismatch(
-                                0,
-                                args.len()
-                            ));
-                        }
-                        return LoxValue::Instance(Rc::new(RefCell::new(
-                            LoxInstance {
-                                class: class.clone(),
-                                fields: HashMap::new(),
+                        let instance = Rc::new(RefCell::new(LoxInstance {
+                            class: class.clone(),
+                            fields: HashMap::new(),
+                        }));
+
+                        if let Some(init_method) = class.resolve_method("init") {
+                            if let LoxCallable::User { arity, closure, declaration, .. } = init_method {
+                                if args.len() != *arity {
+                                    report_error!(RuntimeError::ArityMismatch(*arity, args.len()));
+                                }
+
+                                increase_call_depth!(self);
+                                let new_env = Environment::new(Some(closure.clone()));
+                                let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
+
+                                self.environment.borrow_mut().define("this".to_string(), LoxValue::Instance(instance.clone()));
+
+                                for (i, param) in declaration.params.iter().enumerate() {
+                                    self.environment.borrow_mut().define(param.clone(), args[i].clone());
+                                }
+
+                                self.visit_block(&declaration.body);
+
+                                self.environment = old_env;
+                                self.call_depth -= 1;
                             }
-                        )));
+                        } else {
+                            if args.len() > 0 {
+                                report_error!(RuntimeError::ArityMismatch(0, args.len()));
+                            }
+                        }
+
+                        LoxValue::Instance(instance)
                     },
-                    _ => report_error!(RuntimeError::UnexpectedError),
+                    _ => report_error!(RuntimeError::IllegalCall),
                 }
             },
             Expr::Get(get) => {
@@ -183,10 +219,18 @@ impl Interpreter {
                     instance.borrow().fields.get(&get.name)
                         .cloned()
                         .unwrap_or_else(|| {
-                            report_error!(RuntimeError::UndefinedProperty(get.name.clone()));
+                            let method = instance.borrow().class.resolve_method(&get.name)
+                                .unwrap_or_else(|| {
+                                    report_error!(RuntimeError::UndefinedProperty(get.name.clone()));
+                                })
+                                .clone();
+                            LoxValue::Callable(LoxCallable::Method {
+                                receiver: instance.clone(),
+                                method: Rc::new(method),
+                            })
                         })
                 } else {
-                    report_error!(RuntimeError::UnexpectedError);
+                    unreachable!();
                 }
             },
             Expr::Infix(infix) => {
@@ -270,21 +314,27 @@ impl Interpreter {
                     instance.borrow_mut().fields.insert(set.name.clone(), val.clone());
                     return val;
                 } else {
-                    report_error!(RuntimeError::TypeMismatch);
+                    unreachable!();
                 }
             },
             Expr::Super(super_) => {
-                let lox_value = self.environment.borrow().get("super")
+                let receiver = self.environment.borrow().get("this")
                     .unwrap_or_else(|_| {
                         report_error!(ParseErrorMsg::IllegalSuper());
                     });
-                let method = super_.name.clone();
-                if let LoxValue::Class(super_class) = lox_value {
-                    LoxValue::Callable(super_class.methods.get(&method)
-                        .map(|m| m.clone())
-                        .unwrap_or_else(|| {
-                            report_error!(RuntimeError::UndefinedProperty(method));
-                        }))
+                if let LoxValue::Instance(instance) = receiver {
+                    if let Some(super_class) = instance.borrow().class.superclass.clone() {
+                        if let Some(method) = super_class.methods.get(&super_.name) {
+                            return LoxValue::Callable(LoxCallable::Method {
+                                receiver: instance.clone(),
+                                method: Rc::new(method.clone()),
+                            });
+                        } else {
+                            report_error!(RuntimeError::UndefinedProperty(super_.name.clone()));
+                        }
+                    } else {
+                        report_error!(ParseErrorMsg::IllegalSuper());
+                    }
                 } else {
                     unreachable!();
                 }

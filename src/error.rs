@@ -9,6 +9,7 @@ macro_rules! report_error {
     ($msg:expr) => {{
         println!("{}", $msg); // 先输出到 stdout
         std::process::exit(0); // 退出代码 0
+        // panic!();
     }};
 }
 
@@ -72,13 +73,10 @@ pub enum RuntimeError {
     DivisionByZero,
     UndefinedVariable(String),
     UndefinedProperty(String), // 方法名，字段名
-    #[allow(dead_code)]
     IllegalCall,
     ArityMismatch(usize, usize), // 期望参数个数，实际参数个数
     TypeMismatch,
-    #[allow(dead_code)]
     StackOverflow,
-    UnexpectedError, // 其他错误
 }
 
 impl fmt::Display for RuntimeError {
@@ -98,8 +96,6 @@ impl fmt::Display for RuntimeError {
                 write!(f, "RuntimeError: Operands must be two numbers or two strings."),
             RuntimeError::StackOverflow =>
                 write!(f, "RuntimeError: Stack overflow."),
-            RuntimeError::UnexpectedError =>
-                write!(f, "RuntimeError: An unexpected error occurred."),
         }
     }
 }
