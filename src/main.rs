@@ -9,8 +9,9 @@ use logos::Logos;
 mod ast;
 mod environment;
 mod error;
-mod lexer;
 mod interpreter;
+mod lexer;
+mod native;
 mod value;
 
 lalrpop_mod!(grammar);

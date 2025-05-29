@@ -6,15 +6,15 @@ use crate::ast::*;
 use crate::environment::Environment;
 use crate::value::*;
 use crate::{error::LoxError::*, report_error};
+use crate::native::NativeFunctions;
 
 /// 解析器，构建符号表与作用域链
 pub struct Interpreter {
-    globals: Rc<RefCell<Environment>>,
     environment: Rc<RefCell<Environment>>, // 当前作用域
     call_depth: usize, // 调用深度
 }
 
-const MAX_CALL_DEPTH: usize = 1024;
+const MAX_CALL_DEPTH: usize = 250;
 
 macro_rules! increase_call_depth {
     ($self:expr) => {{
@@ -28,8 +28,13 @@ macro_rules! increase_call_depth {
 impl Interpreter {
     pub fn new() -> Self {
         let globals = Rc::new(RefCell::new(Environment::new(None)));
+        NativeFunctions::get_all().into_iter().for_each(|native| {
+            globals.borrow_mut().define(match native {
+                LoxCallable::Native { name, .. } => name.to_string(),
+                _ => unreachable!(), 
+            }, LoxValue::Callable(native));
+        });
         Interpreter {
-            globals: globals.clone(),
             environment: globals.clone(),
             call_depth: 0,
         }
@@ -62,18 +67,26 @@ impl Interpreter {
     }
 
     fn visit_block(&mut self, block: &StmtBlock) -> Option<LoxValue> {
-        increase_call_depth!(self);
         let new_env = Environment::new(Some(self.environment.clone()));
         let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
 
-        let ret = block.stmts.iter().find_map(|stmt| self.visit_stmt(stmt));
+        // let ret = block.stmts.iter().find_map(|stmt| self.visit_stmt(stmt));
+        for stmt in &block.stmts {
+            if let Some(ret) = self.visit_stmt(stmt) {
+                self.environment = old_env; // 恢复旧环境
+                return Some(ret);
+            }
+        }
 
         self.environment = old_env;
-        self.call_depth -= 1;
-        ret
+        None
     }
 
     fn visit_class(&mut self, class: &StmtClass) {
+        self.environment = Rc::new(RefCell::new(Environment::new(Some(self.environment.clone()))));
+
+        let closure_env = Rc::new(RefCell::new(self.environment.borrow().clone()));
+
         let mut lox_class = LoxClass {
             name: class.name.clone().to_string(),
             methods: HashMap::new(),
@@ -85,6 +98,10 @@ impl Interpreter {
                 let _ = match self.environment.borrow().get(&var.var.name) {
                     Ok(LoxValue::Class(super_class_value)) => {
                         lox_class.superclass = Some(super_class_value.clone());
+                        closure_env.borrow_mut().define(
+                            "super".to_string(),
+                            LoxValue::Class(super_class_value.clone())
+                        );
                     },
                     _ => report_error!(UndefinedVariable(var.var.name.clone())),
                 };
@@ -98,14 +115,21 @@ impl Interpreter {
                     arity: method.params.len(),
                     name: method.name.clone(),
                     declaration: method.clone(),
-                    closure: self.environment.clone(),
+                    closure: closure_env.clone()
                 }
             );
         }
 
+        let lox_class_rc = Rc::new(lox_class);
+
         self.environment.borrow_mut().define(
             class.name.clone(),
-            LoxValue::Class(Rc::new(lox_class))
+            LoxValue::Class(lox_class_rc.clone())
+        );
+
+        closure_env.borrow_mut().define(
+            class.name.clone(),
+            LoxValue::Class(lox_class_rc)
         );
     }
 
@@ -318,22 +342,24 @@ impl Interpreter {
                 }
             },
             Expr::Super(super_) => {
-                let receiver = self.environment.borrow().get("this")
+                let receiver = match self.environment.borrow().get("this")
+                    .unwrap_or_else(|_| { report_error!(IllegalSuper); }) {
+                    LoxValue::Instance(instance) => instance,
+                    _ => unreachable!()
+                };
+
+                let super_class = self.environment.borrow().get("super")
                     .unwrap_or_else(|_| {
                         report_error!(IllegalSuper);
                     });
-                if let LoxValue::Instance(instance) = receiver {
-                    if let Some(super_class) = instance.borrow().class.superclass.clone() {
-                        if let Some(method) = super_class.methods.get(&super_.name) {
-                            return LoxValue::Callable(LoxCallable::Method {
-                                receiver: instance.clone(),
-                                method: Rc::new(method.clone()),
-                            });
-                        } else {
-                            report_error!(UndefinedProperty(super_.name.clone()));
-                        }
+                if let LoxValue::Class(super_class) = super_class {
+                    if let Some(method) = super_class.resolve_method(&super_.name) {
+                        return LoxValue::Callable(LoxCallable::Method {
+                            receiver: receiver.clone(),
+                            method: Rc::new(method.clone()),
+                        });
                     } else {
-                        report_error!(IllegalSuper);
+                        report_error!(UndefinedProperty(super_.name.clone()));
                     }
                 } else {
                     unreachable!();
@@ -354,30 +380,48 @@ impl Interpreter {
     }
 
     fn visit_for(&mut self, for_stmt: &StmtFor) -> Option<LoxValue> {
+        let new_env = Environment::new(Some(self.environment.clone()));
+        let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
+
         if let Some(init) = &for_stmt.init {
             self.visit_stmt(init);
         }
     
         while for_stmt.cond.is_none() || self.visit_expr(&for_stmt.cond.as_ref().unwrap()).is_truthy() {
             if let Some(body_ret) = self.visit_stmt(&for_stmt.body) {
+                self.environment = old_env; // 恢复旧环境
                 return Some(body_ret);
             }
             if let Some(incr) = &for_stmt.incr {
                 self.visit_expr(incr);
             }
         }
+        self.environment = old_env; // 恢复旧环境
         None
     }
 
     fn visit_function(&mut self, func: &StmtFun) {
+        self.environment = Rc::new(RefCell::new(Environment::new(Some(self.environment.clone()))));
+
+        // 先获取以当前环境为闭包环境的新环境
+        let closure_env = Rc::new(RefCell::new(self.environment.borrow().clone()));
+
+        // 创建 callable 对象
         let lox_callable = LoxCallable::User {
             arity: func.params.len(),
             name: func.name.clone(),
             declaration: func.clone(),
-            closure: self.environment.clone(),
+            closure: closure_env.clone(), // 使用 closure_env 的克隆
         };
-
+        
+        // 在当前环境中定义函数
         self.environment.borrow_mut().define(
+            func.name.clone(),
+            LoxValue::Callable(lox_callable.clone())
+        );
+
+        // 将函数本身添加到函数的 closure（支持递归调用）
+        closure_env.borrow_mut().define(
             func.name.clone(),
             LoxValue::Callable(lox_callable)
         );
@@ -399,14 +443,14 @@ impl Interpreter {
     }
 
     fn visit_return(&mut self, return_stmt: &StmtReturn) -> Option<LoxValue> {
-        if Rc::ptr_eq(&self.environment, &self.globals) {
+        if self.call_depth == 0 {
             report_error!(ReturnFromTopLevelCode);
         }
 
         if let Some(value) = &return_stmt.value {
             Some(self.visit_expr(value))
         } else {
-            None
+            Some(LoxValue::Nil)
         }
     }
 
@@ -415,13 +459,26 @@ impl Interpreter {
             report_error!(AlreadyDefinedVariable);
         }
 
+        if self.call_depth > 0 {
+            self.environment.borrow_mut().define(var_stmt.var.name.clone(), LoxValue::FUCKOFF);
+        }
+
         let value = if let Some(expr) = &var_stmt.value {
-            self.visit_expr(expr)
+            match self.visit_expr(expr) {
+                LoxValue::FUCKOFF => {
+                    report_error!(AlreadyDefinedVariable);
+                },
+                value => value,
+            }
         } else {
             LoxValue::Nil
         };
 
         self.environment.borrow_mut().define(var_stmt.var.name.clone(), value);
+        // 如果是顶层作用域，初始化一个新的环境
+        if self.call_depth == 0 {
+            self.environment = Rc::new(RefCell::new(Environment::new(Some(self.environment.clone()))));
+        }
     }
 
     fn visit_while(&mut self, while_stmt: &StmtWhile) -> Option<LoxValue> {

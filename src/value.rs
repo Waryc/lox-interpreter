@@ -15,6 +15,7 @@ pub enum LoxValue {
     Callable(LoxCallable),
     Class(Rc<LoxClass>),
     Instance(Rc<RefCell<LoxInstance>>),
+    FUCKOFF,
 }
 
 impl fmt::Display for LoxValue {
@@ -29,7 +30,8 @@ impl fmt::Display for LoxValue {
                 _ => write!(f, "<anon fn>"),
             },
             LoxValue::Class(c) => write!(f, "class {}", c.name),
-            LoxValue::Instance(i) => write!(f, "instance of {}", i.borrow().class.name),
+            LoxValue::Instance(i) => write!(f, "{} instance", i.borrow().class.name),
+            _ => write!(f, "<unknown>"),
         }
     }
 }
