@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name = "lox-interpreter"
+name = "lox"
 version = "0.1.1"
 
 [dependencies]
@@ -12,7 +12,3 @@ thiserror = "2.0.12"
 
 [build-dependencies]
 lalrpop = "0.22.2" 
-
-[profile.release]
-panic = "abort"  # 直接终止进程（不展开调用栈）
-strip = "symbols" # 移除所有符号信息

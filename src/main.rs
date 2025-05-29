@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::process;
+use std::io::{self, Read};
 
 use lalrpop_util::lalrpop_mod;
 use logos::Logos;
@@ -17,16 +18,33 @@ lalrpop_mod!(grammar);
 fn main() {
     // 获取命令行参数
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} <source_file>", args[0]);
-        process::exit(1);
-    }
-
-    // 读取源文件
-    let source = match fs::read_to_string(&args[1]) {
-        Ok(content) => content,
-        Err(err) => {
-            eprintln!("Error reading file {}: {}", args[1], err);
+    
+    // 读取源代码
+    let source = match args.len() {
+        1 => {
+            // 没有参数，从标准输入读取
+            let mut buffer = String::new();
+            match io::stdin().read_to_string(&mut buffer) {
+                Ok(_) => buffer,
+                Err(err) => {
+                    eprintln!("Error reading from stdin: {}", err);
+                    process::exit(1);
+                }
+            }
+        },
+        2 => {
+            // 有一个参数，从文件读取
+            match fs::read_to_string(&args[1]) {
+                Ok(content) => content,
+                Err(err) => {
+                    eprintln!("Error reading file {}: {}", args[1], err);
+                    process::exit(1);
+                }
+            }
+        },
+        _ => {
+            eprintln!("Usage: {} [source_file]", args[0]);
+            eprintln!("  If no source_file is provided, reads from stdin");
             process::exit(1);
         }
     };
@@ -42,7 +60,7 @@ fn main() {
     let parser = grammar::ProgramParser::new();
     let ast = parser.parse(lexer).unwrap();
 
-    // 打印 AST（使用 Debug 格式化）
+    // 打印 AST
     // println!("AST:\n{:#?}", ast);
 
     // 解释执行
