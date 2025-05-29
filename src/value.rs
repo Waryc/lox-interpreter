@@ -27,9 +27,10 @@ impl fmt::Display for LoxValue {
             LoxValue::String(s) => write!(f, "{}", s),
             LoxValue::Callable(c) => match c {
                 LoxCallable::User { name, .. } => write!(f, "<fn {}>", name),
-                _ => write!(f, "<anon fn>"),
+                LoxCallable::Method { .. } => write!(f, "<fn method>"),
+                LoxCallable::Native { .. } => write!(f, "<native fn>"),
             },
-            LoxValue::Class(c) => write!(f, "class {}", c.name),
+            LoxValue::Class(c) => write!(f, "{}", c.name),
             LoxValue::Instance(i) => write!(f, "{} instance", i.borrow().class.name),
             _ => write!(f, "<unknown>"),
         }

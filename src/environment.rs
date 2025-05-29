@@ -45,4 +45,8 @@ impl Environment {
     pub fn check(&self, name: &str) -> bool {
         self.values.contains_key(name)
     }
+
+    pub fn is_global(&self) -> bool {
+        self.enclosing.is_none()
+    }
 }

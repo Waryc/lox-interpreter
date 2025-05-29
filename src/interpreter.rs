@@ -59,7 +59,7 @@ impl Interpreter {
             Stmt::Fun(func) => self.visit_function(func),
             Stmt::If(if_stmt) => return self.visit_if(if_stmt),
             Stmt::Print(print_stmt) => self.visit_print(print_stmt),
-            Stmt::Return(return_stmt) => return self.visit_return(return_stmt),
+            Stmt::Return(return_stmt) => return Some(self.visit_return(return_stmt)),
             Stmt::Var(var_stmt) => self.visit_var(var_stmt),
             Stmt::While(while_stmt) => return self.visit_while(while_stmt),
         }
@@ -158,11 +158,11 @@ impl Interpreter {
                                 return function(args);
                             },
                             _ => {
-                                let (arity, closure, declaration, receiver) = match lox_callable {
-                                    LoxCallable::User { arity, closure, declaration, .. } => (arity, closure.clone(), declaration.clone(), None),
+                                let (arity, name, closure, declaration, receiver) = match lox_callable {
+                                    LoxCallable::User { arity, name, closure, declaration, .. } => (arity, name.clone(), closure.clone(), declaration.clone(), None),
                                     LoxCallable::Method { receiver, method } => {
-                                        if let LoxCallable::User { arity, declaration, closure, .. } = method.as_ref() {
-                                            (*arity, closure.clone(), declaration.clone(), Some(receiver.clone()))
+                                        if let LoxCallable::User { arity, name, declaration, closure, .. } = method.as_ref() {
+                                            (*arity, name.clone(), closure.clone(), declaration.clone(), Some(receiver.clone()))
                                         } else {
                                             unreachable!()
                                         }
@@ -180,8 +180,8 @@ impl Interpreter {
                                 let new_env = Environment::new(Some(closure));
                                 let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
 
-                                if let Some(receiver_ref) = receiver {
-                                    self.environment.borrow_mut().define("this".to_string(), LoxValue::Instance(receiver_ref));
+                                if let Some(ref receiver_ref) = receiver {
+                                    self.environment.borrow_mut().define("this".to_string(), LoxValue::Instance(receiver_ref.clone()));
                                 }
 
                                 for (i, param) in declaration.params.iter().enumerate() {
@@ -189,8 +189,23 @@ impl Interpreter {
                                 }
 
                                 let ret = match self.visit_block(&declaration.body) {
-                                    Some(value) => value,
-                                    None => LoxValue::Nil,
+                                    Some(value) => match value {
+                                        LoxValue::Nil => if let Some(ref receiver_ref) = receiver {
+                                            LoxValue::Instance(receiver_ref.clone())
+                                        } else {
+                                            LoxValue::Nil
+                                        },
+                                        _ => value,
+                                    },
+                                    None => if let Some(ref receiver_ref) = receiver {
+                                        if name == "init" {
+                                            LoxValue::Instance(receiver_ref.clone())
+                                        } else {
+                                            LoxValue::Nil
+                                        }
+                                    } else {
+                                        LoxValue::Nil
+                                    }
                                 };
 
                                 self.environment = old_env;
@@ -254,17 +269,16 @@ impl Interpreter {
                             })
                         })
                 } else {
-                    unreachable!();
+                    report_error!(UndefinedProperty(get.name.clone()));
                 }
             },
             Expr::Infix(infix) => {
                 let left = self.visit_expr(&infix.lt);
-                let right = self.visit_expr(&infix.rt);
-                match infix.op {
-                    OpInfix::LogicAnd => return LoxValue::Bool(left.is_truthy() && right.is_truthy()),
-                    OpInfix::LogicOr => return LoxValue::Bool(left.is_truthy() || right.is_truthy()),
-                    _ => {}
-                }
+                let right = match infix.op {
+                    OpInfix::LogicAnd => return if left.is_truthy() { self.visit_expr(&infix.rt) } else { left.clone() },
+                    OpInfix::LogicOr => return if left.is_truthy() { left.clone() } else { self.visit_expr(&infix.rt) },
+                    _ => self.visit_expr(&infix.rt)
+                };
                 match (left, right) {
                     // 数值运算
                     (LoxValue::Number(l), LoxValue::Number(r)) => match infix.op {
@@ -303,9 +317,9 @@ impl Interpreter {
                         _ => report_error!(TypeMismatch),
                     },
                     // 默认情况（类型不匹配）
-                    _ => match infix.op {
-                        OpInfix::Equal => LoxValue::Bool(false),
-                        OpInfix::NotEqual => LoxValue::Bool(true),
+                    (l, r) => match infix.op {
+                        OpInfix::Equal => LoxValue::Bool(l.clone() == r.clone()),
+                        OpInfix::NotEqual => LoxValue::Bool(l.clone() != r.clone()),
                         _ => report_error!(TypeMismatch),
                     }
                 }
@@ -338,7 +352,7 @@ impl Interpreter {
                     instance.borrow_mut().fields.insert(set.name.clone(), val.clone());
                     return val;
                 } else {
-                    unreachable!();
+                    report_error!(UndefinedProperty(set.name.clone()));
                 }
             },
             Expr::Super(super_) => {
@@ -401,10 +415,12 @@ impl Interpreter {
     }
 
     fn visit_function(&mut self, func: &StmtFun) {
-        self.environment = Rc::new(RefCell::new(Environment::new(Some(self.environment.clone()))));
-
-        // 先获取以当前环境为闭包环境的新环境
-        let closure_env = Rc::new(RefCell::new(self.environment.borrow().clone()));
+        let closure_env = if self.environment.borrow().is_global() { 
+            self.environment.clone() 
+        } else {
+            self.environment = Rc::new(RefCell::new(Environment::new(Some(self.environment.clone()))));
+            Rc::new(RefCell::new(self.environment.borrow().clone()))
+        };
 
         // 创建 callable 对象
         let lox_callable = LoxCallable::User {
@@ -442,15 +458,15 @@ impl Interpreter {
         println!();
     }
 
-    fn visit_return(&mut self, return_stmt: &StmtReturn) -> Option<LoxValue> {
+    fn visit_return(&mut self, return_stmt: &StmtReturn) -> LoxValue {
         if self.call_depth == 0 {
             report_error!(ReturnFromTopLevelCode);
         }
 
-        if let Some(value) = &return_stmt.value {
-            Some(self.visit_expr(value))
+        if let Some(expr) = &return_stmt.value {
+            self.visit_expr(expr)
         } else {
-            Some(LoxValue::Nil)
+            LoxValue::Nil
         }
     }
 
@@ -465,9 +481,7 @@ impl Interpreter {
 
         let value = if let Some(expr) = &var_stmt.value {
             match self.visit_expr(expr) {
-                LoxValue::FUCKOFF => {
-                    report_error!(AlreadyDefinedVariable);
-                },
+                LoxValue::FUCKOFF => report_error!(AlreadyDefinedVariable),
                 value => value,
             }
         } else {
