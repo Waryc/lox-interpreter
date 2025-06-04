@@ -10,6 +10,8 @@
 !*.md
 !.gitignore
 !*.lalrpop
+!craftinginterpreters/
+!craftinginterpreters/**
 
 # 忽略编译产物
 target/
