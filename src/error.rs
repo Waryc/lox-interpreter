@@ -12,7 +12,6 @@ macro_rules! report_error {
     }};
 }
 
-// 合并所有错误类型到一个枚举
 pub enum LoxError {
     // 词法错误
     UnexpectedCharacter(char),
@@ -23,7 +22,7 @@ pub enum LoxError {
     DeclVarMissingVariableName(PE),
     BlockMissingRightBrace(PE),
     
-    // 语义错误
+    // 语义错误（同解释运行时错误）
     ReturnFromTopLevelCode,
     #[allow(dead_code)]
     MissplacedContinueBreak(String), // 非 lox 语法

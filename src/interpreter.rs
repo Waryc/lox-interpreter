@@ -40,7 +40,7 @@ impl Interpreter {
         }
     }
 
-    pub fn resolve(&mut self, ast: &Program) {
+    pub fn run(&mut self, ast: &Program) {
         self.visit_program(ast);
     }
 
@@ -70,7 +70,6 @@ impl Interpreter {
         let new_env = Environment::new(Some(self.environment.clone()));
         let old_env = std::mem::replace(&mut self.environment, Rc::new(RefCell::new(new_env)));
 
-        // let ret = block.stmts.iter().find_map(|stmt| self.visit_stmt(stmt));
         for stmt in &block.stmts {
             if let Some(ret) = self.visit_stmt(stmt) {
                 self.environment = old_env; // 恢复旧环境
@@ -454,8 +453,7 @@ impl Interpreter {
     }
 
     fn visit_print(&mut self, print_stmt: &StmtPrint) {
-        print!("{}", self.visit_expr(&print_stmt.value));
-        println!();
+        println!("{}", self.visit_expr(&print_stmt.value));
     }
 
     fn visit_return(&mut self, return_stmt: &StmtReturn) -> LoxValue {

@@ -24,7 +24,10 @@ impl fmt::Display for LoxValue {
             LoxValue::Nil => write!(f, "nil"),
             LoxValue::Bool(b) => write!(f, "{}", b),
             LoxValue::Number(n) => write!(f, "{}", n),
-            LoxValue::String(s) => write!(f, "{}", s),
+            LoxValue::String(s) => {
+                let processed = process_string_escapes(s);
+                write!(f, "{}", processed)
+            },
             LoxValue::Callable(c) => match c {
                 LoxCallable::User { name, .. } => write!(f, "<fn {}>", name),
                 LoxCallable::Method { .. } => write!(f, "<fn method>"),
@@ -35,6 +38,41 @@ impl fmt::Display for LoxValue {
             _ => write!(f, "<unknown>"),
         }
     }
+}
+
+/// 处理字符串中的转义序列
+fn process_string_escapes(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(&next_ch) = chars.peek() {
+                chars.next(); // 消费下一个字符
+                match next_ch {
+                    'n' => result.push('\n'),      // 换行
+                    'f' => result.push('\x0C'),    // 清屏 (Form Feed)
+                    't' => result.push('\t'),      // 制表符
+                    'r' => result.push('\r'),      // 回车
+                    '\\' => result.push('\\'),     // 反斜杠
+                    '"' => result.push('"'),       // 双引号
+                    '\'' => result.push('\''),     // 单引号
+                    '0' => result.push('\0'),      // 空字符
+                    _ => {
+                        // 未知转义序列，保持原样
+                        result.push('\\');
+                        result.push(next_ch);
+                    }
+                }
+            } else {
+                result.push('\\');
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    
+    result
 }
 
 /// 可调用对象（函数/方法）

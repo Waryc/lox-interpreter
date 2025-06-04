@@ -145,3 +145,19 @@ impl fmt::Display for Token {
         }
     }
 }
+
+/// 对源代码进行词法分析，返回 token 列表
+pub fn tokenize(source: &str) -> Vec<Token> {
+    let mut lex = Token::lexer(source);
+    std::iter::from_fn(|| {
+        match lex.next() {
+            Some(Ok(token)) => Some(token),
+            Some(Err(())) => {
+                let span = lex.span();
+                let ch = source.chars().nth(span.start).unwrap_or('?');
+                crate::report_error!(crate::error::LoxError::UnexpectedCharacter(ch));
+            },
+            None => None,
+        }
+    }).collect()
+}

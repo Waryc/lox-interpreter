@@ -10,6 +10,7 @@
 !*.md
 !.gitignore
 !*.lalrpop
+!craftinginterpreters
 !craftinginterpreters/
 !craftinginterpreters/**
 
