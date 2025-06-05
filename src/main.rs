@@ -12,7 +12,7 @@ mod value;
 lalrpop_mod!(grammar);
 
 fn main() {
-    // 读取源代码
+    // 源码读取
     let source = cli::read_source();
 
     // 词法分析

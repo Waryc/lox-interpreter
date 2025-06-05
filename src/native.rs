@@ -4,6 +4,7 @@ use rand::random;
 pub struct NativeFunctions;
 
 impl NativeFunctions {
+    // 获取当前时间的秒数
     fn clock() -> LoxCallable {
         LoxCallable::Native {
             arity: 0,

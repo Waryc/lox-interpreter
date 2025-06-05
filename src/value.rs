@@ -51,7 +51,7 @@ fn process_string_escapes(s: &str) -> String {
                 chars.next(); // 消费下一个字符
                 match next_ch {
                     'n' => result.push('\n'),      // 换行
-                    'f' => result.push('\x0C'),    // 清屏 (Form Feed)
+                    'f' => result.push_str("\x1B[2J\x1B[H"),    // 清屏
                     't' => result.push('\t'),      // 制表符
                     'r' => result.push('\r'),      // 回车
                     '\\' => result.push('\\'),     // 反斜杠
